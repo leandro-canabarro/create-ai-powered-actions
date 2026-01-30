@@ -1,0 +1,164 @@
+name: Passo 2
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "src/**"
+      - "dist/**"
+
+permissions:
+  contents: write
+  actions: write
+  issues: write
+
+env:
+  STEP_3_FILE: ".github/steps/3-step.md"
+
+jobs:
+  find_exercise:
+    name: Encontrar Issue do Exercício
+    uses: skills/exercise-toolkit/.github/workflows/find-exercise-issue.yml@v0.7.0
+
+  # This job is optional. We often call it a "grading job". If the step is not graded, remove it.
+  check_step_work:
+    name: Verificar trabalho do passo
+    runs-on: ubuntu-latest
+    needs: [find_exercise]
+    env:
+      ISSUE_REPOSITORY: ${{ github.repository }}
+      ISSUE_NUMBER: ${{ needs.find_exercise.outputs.issue-number }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Obter templates de resposta
+        uses: actions/checkout@v6
+        with:
+          repository: skills/exercise-toolkit
+          path: exercise-toolkit
+          ref: v0.7.0
+
+      - name: Encontrar último comentário
+        id: find-last-comment
+        uses: peter-evans/find-comment@v3
+        with:
+          repository: ${{ env.ISSUE_REPOSITORY }}
+          issue-number: ${{ env.ISSUE_NUMBER }}
+          direction: last
+
+      - name: Atualizar comentário - verificando trabalho
+        uses: GrantBirki/comment@v2.1.1
+        with:
+          repository: ${{ env.ISSUE_REPOSITORY }}
+          issue-number: ${{ env.ISSUE_NUMBER }}
+          comment-id: ${{ steps.find-last-comment.outputs.comment-id }}
+          file: exercise-toolkit/markdown-templates/step-feedback/checking-work.md
+          edit-mode: replace
+
+      # START: Check practical exercise
+
+      - name: Verificar se o arquivo src/rateJoke.js existe
+        id: check-ratejoke-file
+        continue-on-error: true
+        uses: skills/exercise-toolkit/actions/file-exists@v0.7.0
+        with:
+          file: src/rateJoke.js
+
+      - name: Verificar se o arquivo src/main.js existe
+        id: check-main-file
+        continue-on-error: true
+        uses: skills/exercise-toolkit/actions/file-exists@v0.7.0
+        with:
+          file: src/main.js
+
+      - name: Verificar se o arquivo src/index.js existe
+        id: check-index-file
+        continue-on-error: true
+        uses: skills/exercise-toolkit/actions/file-exists@v0.7.0
+        with:
+          file: src/index.js
+
+      - name: Verificar se o diretório dist existe
+        id: check-dist-directory
+        continue-on-error: true
+        uses: skills/exercise-toolkit/actions/file-exists@v0.7.0
+        with:
+          file: dist/index.js
+
+      - name: Atualizar comentário - resultados do passo
+        uses: GrantBirki/comment@v2.1.1
+        with:
+          repository: ${{ env.ISSUE_REPOSITORY }}
+          issue-number: ${{ env.ISSUE_NUMBER }}
+          comment-id: ${{ steps.find-last-comment.outputs.comment-id }}
+          edit-mode: replace
+          file: exercise-toolkit/markdown-templates/step-feedback/step-results-table.md
+          vars: |
+            step_number: 2
+            results_table:
+              - description: "Criado src/rateJoke.js com lógica de integração com IA"
+                passed: ${{ steps.check-ratejoke-file.outcome == 'success' }}
+              - description: "Criado src/main.js com lógica principal da action"
+                passed: ${{ steps.check-main-file.outcome == 'success' }}
+              - description: "Criado src/index.js chamando a função run"
+                passed: ${{ steps.check-index-file.outcome == 'success' }}
+              - description: "Action construída e empacotada no diretório dist"
+                passed: ${{ steps.check-dist-directory.outcome == 'success' }}
+
+      # FIM: Verificar exercício prático
+
+      - name: Falhar job se nem todas as verificações passarem
+        if: contains(steps.*.outcome, 'failure')
+        run: exit 1
+
+  post_next_step_content:
+    name: Postar conteúdo do próximo passo
+    needs: [find_exercise, check_step_work]
+    runs-on: ubuntu-latest
+    env:
+      ISSUE_REPOSITORY: ${{ github.repository }}
+      ISSUE_NUMBER: ${{ needs.find_exercise.outputs.issue-number }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Obter templates de resposta
+        uses: actions/checkout@v6
+        with:
+          repository: skills/exercise-toolkit
+          path: exercise-toolkit
+          ref: v0.7.0
+
+      - name: Criar comentário - passo finalizado
+        uses: GrantBirki/comment@v2.1.1
+        with:
+          repository: ${{ env.ISSUE_REPOSITORY }}
+          issue-number: ${{ env.ISSUE_NUMBER }}
+          file: exercise-toolkit/markdown-templates/step-feedback/step-finished-prepare-next-step.md
+          vars: |
+            next_step_number: 3
+
+      - name: Criar comentário - adicionar conteúdo do passo
+        uses: GrantBirki/comment@v2.1.1
+        with:
+          repository: ${{ env.ISSUE_REPOSITORY }}
+          issue-number: ${{ env.ISSUE_NUMBER }}
+          file: ${{ env.STEP_3_FILE }}
+
+      - name: Criar comentário - observando progresso
+        uses: GrantBirki/comment@v2.1.1
+        with:
+          repository: ${{ env.ISSUE_REPOSITORY }}
+          issue-number: ${{ env.ISSUE_NUMBER }}
+          file: exercise-toolkit/markdown-templates/step-feedback/watching-for-progress.md
+
+      - name: Desabilitar workflow atual e habilitar o próximo
+        run: |
+          gh workflow disable "${{github.workflow}}"
+          gh workflow enable "Step 3"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
